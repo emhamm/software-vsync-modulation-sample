@@ -1,0 +1,58 @@
+diff --git a/drivers/gpu/drm/i915/display/intel_display_params.c b/drivers/gpu/drm/i915/display/intel_display_params.c
+index 2aed110c5b09..1c4eb9c49ab5 100644
+--- a/drivers/gpu/drm/i915/display/intel_display_params.c
++++ b/drivers/gpu/drm/i915/display/intel_display_params.c
+@@ -134,6 +134,11 @@ intel_display_param_named_unsafe(enable_psr2_sel_fetch, bool, 0400,
+ 	"(0=disabled, 1=enabled) "
+ 	"Default: 1");
+ 
++intel_display_param_named_unsafe(share_dplls, bool, 0400,
++	"Share dplls between ports with same HW states "
++	"(0=disabled, 1=enabled) "
++	"(Default: 1)");
++
+ intel_display_param_named_unsafe(enable_dmc_wl, int, 0400,
+ 	"Enable DMC wakelock "
+ 	"(-1=use per-chip default, 0=disabled, 1=enabled, 2=match any register, 3=always locked) "
+diff --git a/drivers/gpu/drm/i915/display/intel_display_params.h b/drivers/gpu/drm/i915/display/intel_display_params.h
+index b01bc5700c52..015b90d5afba 100644
+--- a/drivers/gpu/drm/i915/display/intel_display_params.h
++++ b/drivers/gpu/drm/i915/display/intel_display_params.h
+@@ -50,6 +50,7 @@ struct drm_printer;
+ 	param(bool, psr_safest_params, false, 0400) \
+ 	param(bool, enable_psr2_sel_fetch, true, 0400) \
+ 	param(int, enable_dmc_wl, -1, 0400) \
++	param(bool, share_dplls, true, 0400) \
+ 
+ #define MEMBER(T, member, ...) T member;
+ struct intel_display_params {
+diff --git a/drivers/gpu/drm/i915/display/intel_dpll_mgr.c b/drivers/gpu/drm/i915/display/intel_dpll_mgr.c
+index 8ea96cc524a1..d6a8b49f6e21 100644
+--- a/drivers/gpu/drm/i915/display/intel_dpll_mgr.c
++++ b/drivers/gpu/drm/i915/display/intel_dpll_mgr.c
+@@ -368,11 +368,16 @@ intel_find_dpll(struct intel_atomic_state *state,
+ 	struct intel_dpll_state *dpll_state;
+ 	struct intel_dpll *unused_pll = NULL;
+ 	enum intel_dpll_id id;
++	int total_plls = 0;
+ 
+ 	dpll_state = intel_atomic_get_dpll_state(&state->base);
+ 
+ 	drm_WARN_ON(display->drm, dpll_mask & ~dpll_mask_all);
+ 
++	for_each_set_bit(id, &dpll_mask, I915_NUM_PLLS) {
++		total_plls++;
++	}
++
+ 	for_each_set_bit(id, &dpll_mask, fls(dpll_mask_all)) {
+ 		struct intel_dpll *pll;
+ 
+@@ -387,7 +392,7 @@ intel_find_dpll(struct intel_atomic_state *state,
+ 			continue;
+ 		}
+ 
+-		if (memcmp(dpll_hw_state,
++		if ((display->params.share_dplls || total_plls == 1) && memcmp(dpll_hw_state,
+ 			   &dpll_state[pll->index].hw_state,
+ 			   sizeof(*dpll_hw_state)) == 0) {
+ 			drm_dbg_kms(display->drm,
