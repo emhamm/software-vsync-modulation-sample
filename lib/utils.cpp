@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -79,11 +79,11 @@ void to_binary_string(uint32_t value, int num_bits, char* binary_str)
  * @param reg_info - The register information
  * @return void
  */
-void print_register(uint32_t reg_value, int offset, const register_info* reg_info)
+void print_register(uint32_t reg_value, uint64_t offset, const register_info* reg_info)
 {
 	char binary_str[33]; // To hold the binary representation
 
-	PRINT("Register Name: %s  [offset = 0x%X]\n", reg_info->name, offset);
+	PRINT("Register Name: %s  [offset = 0x%lX]\n", reg_info->name, offset);
 	to_binary_string(reg_value, 32, binary_str);
 	PRINT("\tValue: 0x%08X (%-5u, 0b%-s)\n", reg_value, reg_value, binary_str + strspn(binary_str, " "));
 

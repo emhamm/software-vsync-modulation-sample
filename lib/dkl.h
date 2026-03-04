@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -57,9 +57,9 @@ public:
 	dkl(ddi_sel* ds, int first_dkl_phy_loc, int _pipe);
 	~dkl();
 
-	int program_mmio(int mod);
+	int program_mmio(bool mod);
 	double calculate_pll_clock(uint32_t dkl_pll_div0, uint32_t dkl_bias);
-	double calculate_pll_clock();
+	double calculate_pll_clock(void);
 	int calculate_feedback_dividers(double pll_freq);
 	void calculate_feedback_dividers(double pll_freq, uint32_t dkl_pll_div0,
 		uint8_t* i_fbdiv_intgr_7_0, uint32_t* i_fbdivfrac_21_0);

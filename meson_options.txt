@@ -1,0 +1,37 @@
+# Meson build options for vsyncalter project
+
+option('build_shared_libs',
+  type: 'boolean',
+  value: true,
+  description: 'Build shared libraries'
+)
+
+option('build_swgenlock',
+  type: 'boolean',
+  value: true,
+  description: 'Build swgenlock applications'
+)
+
+option('build_pllctl',
+  type: 'boolean',
+  value: true,
+  description: 'Build pllctl application'
+)
+
+option('build_vblmon',
+  type: 'boolean',
+  value: true,
+  description: 'Build vblmon application'
+)
+
+option('build_framesync',
+  type: 'boolean',
+  value: true,
+  description: 'Build framesync application'
+)
+
+option('enable_coverage',
+  type: 'boolean',
+  value: false,
+  description: 'Enable code coverage instrumentation for unit tests'
+)

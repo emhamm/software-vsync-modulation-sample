@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -22,13 +22,10 @@
  *
  */
 
-#include <math.h>
-#include <debug.h>
-#include <signal.h>
-#include <errno.h>
-#include <time.h>
-#include "mmio.h"
 #include "c10.h"
+#include "mmio.h"
+#include "debug.h"
+#include <cmath>
 
  /**
   * @brief
@@ -36,21 +33,21 @@
   * @param ds
   * @param pipe
   */
-c10::c10(ddi_sel* ds, int _pipe) : phys(_pipe)
+c10::c10(ddi_sel* dsel, int _pipe) : phys(_pipe)
 {
 	TRACING();
-	if (!ds) {
+	if (!dsel) {
 		ERR("ddi_sel pointer is null\n");
 		return;
 	}
 
 	memset(&c10_reg, 0, sizeof(c10_reg));
-	ds->phy_data = &c10_reg;
-	set_ds(ds);
+	dsel->phy_data = &c10_reg;
+	set_ds(dsel);
 	set_init(true);
 	done = 1;
-	u32 port = ds->dpll_num - 1;
-	INFO("c10: port = %d\n", port);
+	u32 port = dsel->dpll_num - 1;
+	DBG("c10: port = %d\n", port);
 	phy_type = C10;
 }
 
@@ -73,11 +70,11 @@ static inline unsigned long long mul_u32_u32(u32 a, u32 b)
  * @param None
  * @return double - The calculated PLL clock
  */
-double c10::calculate_pll_clock()
+double c10::calculate_pll_clock(void)
 {
 	TRACING();
-	ddi_sel* ds = get_ds();
-	if (!ds) {
+	ddi_sel* dsel = get_ds();
+	if (!dsel) {
 		ERR("Invalid ddi_sel\n");
 		return 0;
 	}
@@ -108,14 +105,13 @@ double c10::calculate_pll_clock()
 int c10::calculate_feedback_dividers(double pll_freq)
 {
 	TRACING();
-	const double ref_clk_freq_khz = REF_CLK_FREQ * 1000;
 	uint32_t ref_clk_mpll_div_2_0 = REG_FIELD_GET8(C10_PLL15_TXCLKDIV_MASK, c10_reg.pll_state_orig[C10_PLL_REG_TXCLKDIV]);
 	uint32_t mpll_frac_rem_15_0 = c10_reg.pll_state_orig[C10_PLL_REG_REM_HIGH] << 8 | c10_reg.pll_state_orig[C10_PLL_REG_REM_LOW];
 	uint32_t mpll_frac_den_15_0 = c10_reg.pll_state_orig[C10_PLL_REG_DEN_HIGH] << 8 | c10_reg.pll_state_orig[C10_PLL_REG_DEN_LOW];
 	uint32_t mpll_multiplier_11_0 = (REG_FIELD_GET8(C10_PLL3_MULTIPLIERH_MASK, c10_reg.pll_state_orig[C10_PLL_REG_MULTIPLIER]) << 8 | c10_reg.pll_state_orig[2]) / 2 + 16;
 	unsigned long long temp = pll_freq * (10 << (ref_clk_mpll_div_2_0 + 16));
-	temp -= DIV_ROUND_CLOSEST_ULL(ref_clk_freq_khz * mpll_frac_rem_15_0, mpll_frac_den_15_0);
-	temp /= (ref_clk_freq_khz);
+	temp -= DIV_ROUND_CLOSEST_ULL(REF_CLK_FREQ_KHZ * mpll_frac_rem_15_0, mpll_frac_den_15_0);
+	temp /= (REF_CLK_FREQ_KHZ);
 	temp -= ((unsigned long long)mpll_multiplier_11_0 << 16);
 	int new_mpll_frac_quot_15_0 = (int)temp;
 	c10_reg.pll_state_mod[C10_PLL_REG_QUOT_LOW] = new_mpll_frac_quot_15_0 & GENMASK(7, 0);
@@ -163,8 +159,8 @@ void c10::print_registers()
 void c10::read_registers()
 {
 	TRACING();
-	ddi_sel* ds = get_ds();
-	if (!ds) {
+	ddi_sel* dsel = get_ds();
+	if (!dsel) {
 		ERR("Invalid ddi_sel\n");
 		return;
 	}
@@ -184,12 +180,11 @@ void c10::read_registers()
 
 	// dpll_num holds port number.
 	// MTL has port number same as ddi_select.  However PTL is different.
-	u32 port = ds->dpll_num - 1;
-	int pll_state[C10_PLL_REG_COUNT] = { 0 };
+	u32 port = dsel->dpll_num - 1;
 	for (int i = 0; i < C10_PLL_REG_COUNT; i++) {
-		pll_state[i] = intel_cx0_read(port, INTEL_CX0_LANE0, PHY_C10_VDR_PLL(i));
-		c10_reg.pll_state_orig[i] = c10_reg.pll_state_mod[i] = pll_state[i];
-		DBG("c10: pll_state[%d] = 0x%X, %d\n", i, pll_state[i], pll_state[i]);
+		int value = intel_cx0_read(port, INTEL_CX0_LANE0, PHY_C10_VDR_PLL(i));
+		c10_reg.pll_state_orig[i] = c10_reg.pll_state_mod[i] = value;
+		DBG("c10: pll_state[%d] = 0x%X, %d\n", i, value, value);
 	}
 }
 
@@ -203,12 +198,16 @@ void c10::read_registers()
  * - 1 = modified
  * @return 0 - success, non zero - failure
  */
-int c10::program_mmio(int mod)
+int c10::program_mmio(bool mod)
 {
 	TRACING();
-	ddi_sel* ds = get_ds();
+	ddi_sel* dsel = get_ds();
+	if (!dsel) {
+		ERR("ddi_sel pointer is null\n");
+		return 1;
+	}
 
-	u32 port = ds->dpll_num - 1;
+	u32 port = dsel->dpll_num - 1;
 
 	intel_cx0_rmw(port, INTEL_CX0_BOTH_LANES, PHY_C10_VDR_CONTROL(1),
 		0, C10_VDR_CTRL_MSGBUS_ACCESS,

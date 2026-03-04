@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -83,17 +83,18 @@ typedef struct _c20_phy_reg {
 
 class c20 : public phys {
 public:
-	c20(ddi_sel* ds, int _pipe);
+	c20(ddi_sel* ds, int _pipe, bool isBMG = false);
 	~c20() {};
 
-	int program_mmio(int mod);
-	double calculate_pll_clock();
+	int program_mmio(bool mod);
+	double calculate_pll_clock(void);
 	int calculate_feedback_dividers(double pll_freq);
 	void print_registers();
 	void read_registers();
 
 private:
 	c20_phy_reg c20_reg;
+	bool isBMG;
 
 };
 

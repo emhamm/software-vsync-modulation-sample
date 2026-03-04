@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -22,49 +22,82 @@
  *
  */
 
-#include <stdio.h>
-#include <sys/stat.h>
-#include <math.h>
-#include <assert.h>
+// C++ standard headers (alphabetically)
+#include <cassert>
 #include <cerrno>
+#include <cmath>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <list>
+#include <string>
+
+using std::list;
+using std::string;
+
+// Project headers
 #include <vsyncalter.h>
+
+// Platform abstraction
+#include "file_platform.h"
+#include "drm_platform.h"
+#include "system_platform.h"
 #include <debug.h>
-#include <stdlib.h>
-#include <memory.h>
-#include <signal.h>
-#include <time.h>
-#include <sys/time.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <xf86drm.h>
-#include <xf86drmMode.h>
-#include <tgl.h>
-#include <adl_s.h>
 #include <adl_p.h>
+#include <adl_s.h>
 #include <mtl.h>
 #include <ptl.h>
-#include "mmio.h"
-#include "dkl.h"
-#include "combo.h"
+#include <tgl.h>
+
 #include "c10.h"
 #include "c20.h"
+#include "combo.h"
+#include "common.h"
+#include "dkl.h"
 #include "dp_m_n.h"
 #include "i915_pciids.h"
+#include "mmio.h"
 
-platform platform_table[] = {
+const platform platform_table[] = {
 	{"TGL",       {INTEL_TGL_IDS},       tgl_ddi_sel,   ARRAY_SIZE(tgl_ddi_sel),   4},
 	{"ADL_S_FAM", {INTEL_ADL_S_FAM_IDS}, adl_s_ddi_sel, ARRAY_SIZE(adl_s_ddi_sel), 0},
 	{"ADL_P_FAM", {INTEL_ADL_P_FAM_IDS}, adl_p_ddi_sel, ARRAY_SIZE(adl_p_ddi_sel), 4},
 	{"MTL",       {INTEL_MTL_FAM_IDS},   mtl_ddi_sel,   ARRAY_SIZE(mtl_ddi_sel),   0},
+	{"BMG",       {INTEL_BMG_FAM_IDS},   mtl_ddi_sel,   ARRAY_SIZE(mtl_ddi_sel),   0}, // BMG uses MTL PHY programming
 	{"PTL",       {INTEL_PTL_FAM_IDS},   ptl_ddi_sel,   ARRAY_SIZE(ptl_ddi_sel),   0},
 };
 
-#define DP_SST 0x2
-#define DP_MST 0x3
+enum DisplayPortMode {
+	DP_SST = 0x2,
+	DP_MST = 0x3
+};
+
+constexpr long double HH_CLOCK_FREQUENCY = 38.4L;
 
 int supported_platform = 0;
-list<phys *> *phy_enabled_list = NULL;
-int lib_client_done = 0;
+static list<phys *> *phy_enabled_list = nullptr;
+std::atomic<bool> lib_client_done{false};
+bool hardware_ts = false;
+
+/* Timestamp register offsets for each pipe */
+typedef struct {
+	uint32_t low;  /* Lower 32-bit register offset */
+	uint32_t high; /* Upper 32-bit register offset */
+} hh_timestamp_regs_t;
+
+// Panther Lake Hammock Harbor timestamping registers
+static const hh_timestamp_regs_t pipe_timestamp_regs[4] = {
+	{ 0x46300, 0x46304 }, /* Pipe 0 */
+	{ 0x46308, 0x4630C }, /* Pipe 1 */
+	{ 0x46310, 0x46314 }, /* Pipe 2 */
+	{ 0x46318, 0x4631C }  /* Pipe 3 */
+};
+
+#define HH_ENABLE_REG 0x462FC
+#define HH_LIVE_TS_REG_HIGH 0x462f8
+#define HH_LIVE_TS_REG_LOW 0x462f4
+#define HH_ENABLE_BIT 31
 
 /**
 * @brief
@@ -74,45 +107,17 @@ int lib_client_done = 0;
 * @param *t - A pointer to a pointer where we need to store the timer
 * @return
 * - 0 == SUCCESS
-* - -1 = FAILURE
+* - 1 = FAILURE
 */
 int phys::make_timer(long expire_ms, void *user_ptr, reset_func reset)
 {
-	struct sigevent         te;
-	struct itimerspec       its;
-	struct sigaction        sa;
-	int                     sig_no = SIGRTMIN;
-
-	INFO("Setting timer for %.3f seconds\n", expire_ms/1000.0);
-	// Set up signal handler
-	sa.sa_flags = SA_SIGINFO;
-	sa.sa_sigaction = reset;
-	sigemptyset(&sa.sa_mask);
-	if (sigaction(sig_no, &sa, NULL) == -1) {
-		ERR("Failed to setup signal handling for timer.\n");
-		return -1;
-	}
-
-	// Set and enable alarm
-	te = {};
-	te.sigev_notify = SIGEV_SIGNAL;
-	te.sigev_signo = sig_no;
-	te.sigev_value.sival_ptr = user_ptr;
-	timer_create(CLOCK_REALTIME, &te, &timer_id);
-
-	its.it_interval.tv_sec = 0;
-	its.it_interval.tv_nsec = TV_NSEC(expire_ms);
-	its.it_value.tv_sec = TV_SEC(expire_ms);
-	its.it_value.tv_nsec = TV_NSEC(expire_ms);
-	timer_settime(timer_id, 0, &its, NULL);
-
-	return 0;
+	return os_make_timer(expire_ms, user_ptr, reset, (void**)&timer_id);
 }
 
 /**
 * @brief
 * This function opens a device.  e.g /dev/dri/card0
-* @param None
+* @param *device_str - A string pointer with device identifier
 * @return
 * - 0 == SUCCESS
 * - <0 == FAILURE
@@ -123,22 +128,28 @@ int open_device(const char *device_str)
 		ERR("Device string is NULL\n");
 		return -1;
 	}
-	return open(device_str, O_RDWR | O_CLOEXEC, 0);
+	return os_open_device(device_str);
 }
 
 /**
 * @brief
 * This function closes an open handle
-* @param None
+* @param fd - file handle to close
 * @return void
 */
-void close_device(int fd)
+int close_device(int fd)
 {
-	if(close(fd) == -1){
-		ERR("Failed to properly close file descriptor. Error: %s\n", strerror(errno));
-	}
+	os_close_device(fd);
+	return 0;
 }
 
+/**
+ * @brief
+ * This function finds enabled PHYs on a system
+ *
+ * @param m_n - Whether to use DP M & N mode
+ * @return int - 0 success , 1 failure
+ */
 int find_enabled_phys(bool m_n)
 {
 	int i, j, val, ddi_select;
@@ -174,7 +185,7 @@ int find_enabled_phys(bool m_n)
 	for(i = 0; i < ARRAY_SIZE(trans_ddi_func_ctl); i++) {
 		// First read the TRANS_DDI_FUNC_CTL to find if this pipe is enabled or not
 		val = READ_OFFSET_DWORD(trans_ddi_func_ctl[i].addr);
-		DBG("0x%X = 0x%X\n", trans_ddi_func_ctl[i].addr, val);
+		DBG("0x%lX = 0x%X\n", trans_ddi_func_ctl[i].addr, val);
 		if(!(val & BIT(31))) {
 			DBG("Pipe %d is turned off\n", i); // 0 based index for pipe # printing
 			continue;
@@ -190,7 +201,7 @@ int find_enabled_phys(bool m_n)
 		DBG("ddi_select = 0x%X\n", ddi_select);
 		for(j = 0; j < platform_table[supported_platform].ds_size; j++) {
 
-			phys *new_phy = NULL;
+			phys *new_phy = nullptr;
 			// Match the DDI with the available ones on this platform
 			if(platform_table[supported_platform].ds[j].de_clk == ddi_select) {
 				if (m_n && (mode_select == DP_SST || mode_select == DP_MST )) {
@@ -214,7 +225,8 @@ int find_enabled_phys(bool m_n)
 							break;
 						case C20:
 							DBG("Detected a C20 phy on pipe %d\n", i);
-							new_phy = new c20(&platform_table[supported_platform].ds[j], i);
+							new_phy = new c20(&platform_table[supported_platform].ds[j], i,
+								platform_table[supported_platform].name == string("BMG")); // BMG uses C20 PHY
 							break;
 						default:
 							ERR("Unsupported PHY. Phy is %d\n", platform_table[supported_platform].ds[j].phy);
@@ -223,7 +235,7 @@ int find_enabled_phys(bool m_n)
 					}
 				}
 				// Ignore PHYs that we don't support yet
-				if (new_phy == NULL) {
+				if (new_phy == nullptr) {
 					continue;
 				}
 				if(!new_phy->is_init()) {
@@ -246,7 +258,9 @@ int find_enabled_phys(bool m_n)
 * @brief
 * This function deallocates all members of the phy_enabled_list
 * @param None
-* @return int, 0 - success, non zero - failure
+* @return
+* - 0 == SUCCESS
+* - 1 == FAILURE
 */
 
 int cleanup_phy_list()
@@ -263,7 +277,7 @@ int cleanup_phy_list()
 	}
 
 	delete phy_enabled_list;
-	phy_enabled_list = NULL;
+	phy_enabled_list = nullptr;
 
 	return 0; // Success
 }
@@ -283,104 +297,14 @@ void shutdown_lib(void)
 * @brief
 * Prints the DRM information.	Loops through all CRTCs and Connectors and prints
 * their information.
-* @param None
-* @return void
+* @param *device_str - A string pointer containing device identifier
+* @return
+* - 0 == SUCCESS
+* - 1 == FAILURE
 */
 int print_drm_info(const char *device_str)
 {
-	// This list covers most of the connector types that are supported by the DRM
-	const char* connector_type_str[] = {
-		"Unknown",      // 0
-		"VGA",          // 1
-		"DVI-I",        // 2
-		"DVI-D",        // 3
-		"DVI-A",        // 4
-		"Composite",    // 5
-		"S-Video",      // 6
-		"LVDS",         // 7
-		"Component",    // 8
-		"9PinDIN",      // 9
-		"DisplayPort",  // 10
-		"HDMI-A",       // 11
-		"HDMI-B",       // 12
-		"TV",           // 13
-		"eDP",          // 14
-		"Virtual",      // 15
-		"DSI",          // 16
-		"DPI",          // 17
-		"WriteBack",    // 18
-		"SPI",          // 19
-		"USB"           // 20
-	};
-
-	int fd = open_device(device_str);
-	if (fd < 0) {
-		ERR("Failed to open DRM device: %s (%s)\n", device_str, strerror(errno));
-		return 1 ;
-	}
-
-	drmModeRes *resources = drmModeGetResources(fd);
-	if (!resources) {
-		ERR("drmModeGetResources failed: %s\n", strerror(errno));
-		if(close(fd) == -1){
-			ERR("Failed to properly close file descriptor. Error: %s\n", strerror(errno));
-		}
-		return 1;
-	}
-	INFO("DRM Info:\n");
-
-	// First print Pipe/CRTC info
-	INFO("  CRTCs found: %d\n", resources->count_crtcs);
-	for (int i = 0; i < resources->count_crtcs; i++) {
-		drmModeCrtc *crtc = drmModeGetCrtc(fd, resources->crtcs[i]);
-		if (!crtc) {
-			ERR("drmModeGetCrtc failed: %s\n", strerror(errno));
-			continue;
-		}
-
-		double refresh_rate = 0;
-		if (crtc->mode_valid) {
-			refresh_rate = (double)crtc->mode.clock * 1000.0 / (crtc->mode.vtotal * crtc->mode.htotal);
-		}
-
-		INFO("  \tPipe: %2d, CRTC ID: %4d, Mode Valid: %3s, Mode Name: %s, Position: (%4d, %4d), Resolution: %4dx%-4d, Refresh Rate: %.2f Hz\n",
-			   i, crtc->crtc_id, (crtc->mode_valid) ? "Yes" : "No", crtc->mode.name,
-				crtc->x, crtc->y, crtc->mode.hdisplay, crtc->mode.vdisplay, refresh_rate);
-
-		drmModeFreeCrtc(crtc);
-	}
-
-	// Print Connector info
-	INFO("  Connectors found: %d\n", resources->count_connectors);
-	for (int i = 0; i < resources->count_connectors; i++) {
-		drmModeConnector *connector = drmModeGetConnector(fd, resources->connectors[i]);
-		if (!connector) {
-			ERR("drmModeGetConnector failed: %s\n", strerror(errno));
-			continue;
-		}
-
-		INFO("  \tConnector: %-4d (ID: %-4d), Type: %-4d (%-12s), Type ID: %-4d, Connection: %-12s\n",
-				i, connector->connector_id, connector->connector_type, connector_type_str[connector->connector_type],
-				connector->connector_type_id,
-				(connector->connection == DRM_MODE_CONNECTED) ? "Connected" : "Disconnected");
-
-		if (connector->connection == DRM_MODE_CONNECTED) {
-			drmModeEncoder *encoder = drmModeGetEncoder(fd, connector->encoder_id);
-			if (encoder) {
-				INFO("\t\t\tEncoder ID: %d, CRTC ID: %d\n", encoder->encoder_id, encoder->crtc_id);
-				drmModeFreeEncoder(encoder);
-			}
-		}
-		drmModeFreeConnector(connector);
-	}
-
-	drmModeFreeResources(resources);
-	if(close(fd) == -1){
-		ERR("Failed to properly close file descriptor. Error: %s\n", strerror(errno));
-		return 1;
-	}
-
-	return 0;
+	return os_print_drm_info(device_str);
 }
 
 /**
@@ -388,18 +312,20 @@ int print_drm_info(const char *device_str)
 * This function initializes the library. It must be called
 * ahead of all other functions because it opens device, maps MMIO space and
 * initializes any key global variables.
-* @param None
+* @param device_str - The device string identifier (e.g., "/dev/dri/card0")
+* @param dp_m_n - Whether to use DisplayPort M & N mode for timing control
+* @param h_ts - Whether to enable hardware timestamping (Hammock Harbor feature)
 * @return
 * - 0 == SUCCESS
 * - 1 == FAILURE
 */
-int vsync_lib_init(const char *device_str, bool dp_m_n)
+int vsync_lib_init(const char *device_str, bool dp_m_n, bool h_ts)
 {
 	int device_id, i, j;
 	if(!IS_INIT()) {
 
 		if (!device_str) {
-			ERR("Device string is NULL\n");
+			ERR("Device string is nullptr\n");
 			return 1;
 		}
 
@@ -442,6 +368,13 @@ int vsync_lib_init(const char *device_str, bool dp_m_n)
 			return 1;
 		}
 
+		if (h_ts) {
+			hardware_ts = h_ts;
+			uint32_t val = READ_OFFSET_DWORD(HH_ENABLE_REG);
+			SETBIT_INPLACE(val, HH_ENABLE_BIT); // Enable HH
+			WRITE_OFFSET_DWORD(HH_ENABLE_REG, val); // Enable HH
+		}
+
 		INIT();
 	}
 
@@ -454,7 +387,9 @@ int vsync_lib_init(const char *device_str, bool dp_m_n)
 * and unmapping memory. It must be called at program exit or else we can have
 * memory leaks in the program.
 * @param None
-* @return int, 0 - success, non zero - failure
+* @return
+* - 0 == SUCCESS
+* - 1 == FAILURE
 */
 int vsync_lib_uninit()
 {
@@ -504,7 +439,9 @@ int vsync_lib_uninit()
 * registers to their original values after the shift has been applied.
 * @param commit - This is a boolean value. If false, then we will not program
 * the PHY registers. This is useful for debugging purposes.
-* @return int, 0 - success, non zero - failure
+* @return
+* - 0 == SUCCESS
+* - 1 == FAILURE
 */
 int synchronize_vsync(double time_diff, int pipe, double shift, double shift2, int step_threshold,
 						int wait_between_steps, bool reset, bool commit)
@@ -554,34 +491,6 @@ int synchronize_vsync(double time_diff, int pipe, double shift, double shift2, i
 
 /**
 * @brief
-* The function which will be called whenever a VBLANK occurs
-* @param fd - The device file descriptor
-* @param frame - Frame number
-* @param sec - second when the vblank occured
-* @param usec - micro second when the vblank occured
-* @param *data - a private data structure pointing to the vbl_info
-* @return void
-*/
-static void vblank_handler(int fd, unsigned int frame, unsigned int sec,
-			   unsigned int usec, void *data)
-{
-	drmVBlank vbl;
-	vbl_info *info = (vbl_info *)data;
-	memset(&vbl, 0, sizeof(drmVBlank));
-	if(info->counter < info->size) {
-		info->vsync_array[info->counter++] = TIME_IN_USEC(sec, usec);
-	}
-
-	vbl.request.type = (drmVBlankSeqType) (DRM_VBLANK_RELATIVE | DRM_VBLANK_EVENT |
-		pipe_to_wait_for(info->pipe));
-	vbl.request.sequence = 1;
-	vbl.request.signal = (unsigned long)data;
-
-	drmWaitVBlank(fd, &vbl);
-}
-
-/**
-* @brief
 * This function determines the type of vblank synchronization to
 * use for the output.
 * @param pipe - Indicates which CRTC to get vblank for.  Knowing this, we
@@ -596,19 +505,15 @@ static void vblank_handler(int fd, unsigned int frame, unsigned int sec,
 */
 unsigned int pipe_to_wait_for(int pipe)
 {
-	int ret = 0;
-	if (pipe > 1) {
-		ret = (pipe << DRM_VBLANK_HIGH_CRTC_SHIFT) & DRM_VBLANK_HIGH_CRTC_MASK;
-	} else if (pipe > 0) {
-		ret = DRM_VBLANK_SECONDARY;
-	}
-	return ret;
+	return os_pipe_to_wait_for(pipe);
 }
 
 /**
 * @brief
-* This function gets a list of vsyncs for the number of times
-* indicated by the caller and provide their timestamps in the array provided
+* This function gets a list of vsyncs (as microseconds) for the number of times
+* indicated by the caller and provide their timestamps in the array provided.
+* Timestamps are returned in chronological order. [0] -> oldest and [size - 1] -> latest.
+* @param device_str - The device string identifier (e.g., "/dev/dri/card0")
 * @param *vsync_array - The array in which vsync timestamps need to be given
 * @param size - The size of this array. This is also the number of times that we
 * need to get the next few vsync timestamps.
@@ -620,89 +525,13 @@ unsigned int pipe_to_wait_for(int pipe)
 */
 int get_vsync(const char *device_str, uint64_t *vsync_array, int size, int pipe)
 {
-	drmVBlank vbl;
-	int ret;
-	drmEventContext evctx;
-	vbl_info handler_info;
-
-	// Validate parameters
-	if (device_str == NULL || strlen(device_str) == 0) {
-		ERR("Invalid device string (NULL or empty)\n");
-		return 1;
-	}
-
-	if (vsync_array == NULL) {
-		ERR("NULL vsync_array pointer provided\n");
-		return 1;
-	}
-
-	if (size <= 0) {
-		ERR("Invalid size (must be > 0): %d\n", size);
-		return 1;
-	}
-
+	// Validate max size constraint specific to this API
 	if (size > VSYNC_MAX_TIMESTAMPS) {
 		ERR("Requested size (%d) exceeds VSYNC_MAX_TIMESTAMPS (%d)\n", size, VSYNC_MAX_TIMESTAMPS);
 		return 1;
 	}
 
-	int fd = open_device(device_str);
-	if(fd < 0) {
-		ERR("Couldn't open %s. Is i915 installed?\n", device_str);
-		return 1;
-	}
-
-	memset(&vbl, 0, sizeof(drmVBlank));
-
-	handler_info.vsync_array = vsync_array;
-	handler_info.size = size;
-	handler_info.counter = 0;
-	handler_info.pipe = pipe;
-
-	// Queue an event for frame + 1
-	vbl.request.type = (drmVBlankSeqType)
-		(DRM_VBLANK_RELATIVE | DRM_VBLANK_EVENT | pipe_to_wait_for(pipe));
-	DBG("vbl.request.type = 0x%X\n", vbl.request.type);
-	vbl.request.sequence = 1;
-	vbl.request.signal = (unsigned long)&handler_info;
-	ret = drmWaitVBlank(fd, &vbl);
-	if (ret) {
-		ERR("drmWaitVBlank (relative, event) failed ret: %i\n", ret);
-		close_device(fd);
-		return 1;
-	}
-
-	// Set up our event handler
-	memset(&evctx, 0, sizeof evctx);
-	evctx.version = DRM_EVENT_CONTEXT_VERSION;
-	evctx.vblank_handler = vblank_handler;
-	evctx.page_flip_handler = NULL;
-
-	// Poll for events
-	for(int i = 0; i < size; i++) {
-		struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
-		fd_set fds;
-
-		FD_ZERO(&fds);
-		FD_SET(0, &fds);
-		FD_SET(fd, &fds);
-		ret = select(fd + 1, &fds, NULL, NULL, &timeout);
-
-		if (ret <= 0) {
-			ERR("select timed out or error (ret %d)\n", ret);
-			continue;
-		}
-
-		ret = drmHandleEvent(fd, &evctx);
-		if (ret) {
-			ERR("drmHandleEvent failed: %i\n", ret);
-			close_device(fd);
-			return 1;
-		}
-	}
-
-	close_device(fd);
-	return 0;
+	return os_get_vsync(device_str, vsync_array, size, pipe, hardware_ts);
 }
 
 
@@ -731,12 +560,12 @@ double get_vblank_interval(const char *device_str, int pipe, int size)
 	}
 
 	if (get_vsync(device_str, timestamps, size, pipe) == 0) {
-			long total_interval = 0;
+			int64_t total_interval = 0;
 			for (int i = 0; i < size - 1; ++i) {
 					total_interval += (timestamps[i+1] - timestamps[i]);
 			}
 
-			double avg_interval =  total_interval / (size - 1) / 1000.0; // Convert to milliseconds
+			double avg_interval =  ((double)total_interval) / (size - 1) / 1000.0; // Convert to milliseconds
 			return avg_interval;
 	}
 	return 0.0;
@@ -750,7 +579,9 @@ double get_vblank_interval(const char *device_str, int pipe, int size)
  * @param shift - Fraction value to be used during the calculation.
  * @param wait_between_steps - Wait in milliseconds to be applied between steps after
  * each time programming the registers.
- * @return int - 0 on success, non-zero on failure
+* @return
+* - 0 == SUCCESS
+* - 1 == FAILURE
  */
 int set_pll_clock(double pll_clock, int pipe, double shift, uint32_t wait_between_steps)
 {
@@ -783,9 +614,8 @@ int set_pll_clock(double pll_clock, int pipe, double shift, uint32_t wait_betwee
 
 /**
  * @brief
- * This function return the PLL clock for the given pipe
- * @param pipe - The pipe to set the PLL clock for
- * each time programming the registers.
+ * This function returns the PLL clock for the given pipe
+ * @param pipe - The pipe to get the PLL clock for
  * @return double - The PLL clock for the given pipe
  */
 double get_pll_clock(int pipe)
@@ -814,21 +644,18 @@ double get_pll_clock(int pipe)
 
 /**
 * @brief
-*	Utility function to return first available card.
-* @param  none
-* @return
-* - 0 == SUCCESS
-* - -1 = FAILURE
+*	Utility function to return first available DRI card device path.
+* @param none
+* @return const char* - Path to the first available DRI card (e.g., "/dev/dri/card0")
 */
-const char* find_first_dri_card() {
+const char* find_first_dri_card(void) {
 	static char path[32];
-	struct stat st;
 	#define MAX_CARDS 4
 	#define DEVICE_PATH_FORMAT "/dev/dri/card%d"
 
 	for (int i = 0; i < MAX_CARDS; i++) {
 		snprintf(path, sizeof(path), DEVICE_PATH_FORMAT, i);
-		if (stat(path, &st) == 0) {
+		if (os_stat_file(path) == 0) {
 			return path;
 		}
 	}
@@ -840,12 +667,13 @@ const char* find_first_dri_card() {
 
 /**
 * @brief
-*	Utility function to return PHY readable name.
-* @param  pipe
-* @return  PHY type name
+*	Utility function to get the readable PHY type name for a given pipe.
+* @param pipe - The pipe number to get PHY information for
+* @param out_name - Output buffer to store the PHY name string
+* @param out_size - Size of the output buffer
+* @return bool - true if PHY name was successfully retrieved, false otherwise
 */
 bool get_phy_name(int pipe, char* out_name, size_t out_size) {
-	//static char phy_type[32] = "";
 
 	if (!out_name || out_size == 0) {
 		ERR("Invalid output buffer.\n");

@@ -1,5 +1,31 @@
+/*
+ * Copyright © 2024-2026 Intel Corporation
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the next
+ * paragraph) shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
+ *
+ */
+
 #ifndef _CX0_HELPER_H
 #define _CX0_HELPER_H
+
+#include "macros.h"
 
 namespace cx0 {
 
@@ -131,7 +157,7 @@ bool is_power_of_2(unsigned long n)
   * @return: @__val masked and shifted into the field defined by @__mask.
   */
 #define REG_FIELD_PREP(__mask, __val)                       \
-	((u32)(((typeof(__mask))(__val) << __bf_shf(__mask)) & (__mask)))
+	((u32)(((decltype(__mask))(__val) << __bf_shf(__mask)) & (__mask)))
 
 
   /**
@@ -145,7 +171,7 @@ bool is_power_of_2(unsigned long n)
    * @return: @__val masked and shifted into the field defined by @__mask.
    */
 #define REG_FIELD_PREP8(__mask, __val)                                          \
-	((u8)((((typeof(__mask))(__val) << __bf_shf(__mask)) & (__mask)))
+	((u8)((((decltype(__mask))(__val) << __bf_shf(__mask)) & (__mask)))
 
 
    /**
@@ -158,7 +184,7 @@ bool is_power_of_2(unsigned long n)
 	*/
 #define FIELD_GET(_mask, _reg)                      \
 	({                              \
-		(typeof(_mask))(((_reg) & (_mask)) >> __bf_shf(_mask)); \
+		(decltype(_mask))(((_reg) & (_mask)) >> __bf_shf(_mask)); \
 	})
 
 
@@ -342,23 +368,36 @@ enum intel_output_type {
 #define PHY_C20_VDR_CUSTOM_WIDTH	0xD02
 #define   PHY_C20_CUSTOM_WIDTH_MASK	REG_GENMASK(1, 0)
 #define   PHY_C20_CUSTOM_WIDTH(val)	REG_FIELD_PREP8(PHY_C20_CUSTOM_WIDTH_MASK, val)
-#define PHY_C20_A_TX_CNTX_CFG(idx)	(0xCF2E - (idx))
-#define PHY_C20_B_TX_CNTX_CFG(idx)	(0xCF2A - (idx))
-#define   C20_PHY_TX_RATE		REG_GENMASK(2, 0)
-#define PHY_C20_A_CMN_CNTX_CFG(idx)	(0xCDAA - (idx))
-#define PHY_C20_B_CMN_CNTX_CFG(idx)	(0xCDA5 - (idx))
-#define PHY_C20_A_MPLLA_CNTX_CFG(idx)	(0xCCF0 - (idx))
-#define PHY_C20_B_MPLLA_CNTX_CFG(idx)	(0xCCE5 - (idx))
-#define   C20_MPLLA_FRACEN		REG_BIT(14)
-#define   C20_FB_CLK_DIV4_EN		REG_BIT(13)
-#define   C20_MPLLA_TX_CLK_DIV_MASK	REG_GENMASK(10, 8)
-#define PHY_C20_A_MPLLB_CNTX_CFG(idx)	(0xCB5A - (idx))
-#define PHY_C20_B_MPLLB_CNTX_CFG(idx)	(0xCB4E - (idx))
-#define   C20_MPLLB_TX_CLK_DIV_MASK	REG_GENMASK(15, 13)
-#define   C20_MPLLB_FRACEN		REG_BIT(13)
-#define   C20_REF_CLK_MPLLB_DIV_MASK	REG_GENMASK(12, 10)
-#define   C20_MULTIPLIER_MASK		REG_GENMASK(11, 0)
-#define   C20_PHY_USE_MPLLB		REG_BIT(7)
+
+#define _MTL_C20_A_TX_CNTX_CFG	0xCF2E
+#define _MTL_C20_B_TX_CNTX_CFG	0xCF2A
+#define _MTL_C20_A_CMN_CNTX_CFG	0xCDAA
+#define _MTL_C20_B_CMN_CNTX_CFG	0xCDA5
+#define _MTL_C20_A_MPLLA_CFG	0xCCF0
+#define _MTL_C20_B_MPLLA_CFG	0xCCE5
+#define _MTL_C20_A_MPLLB_CFG	0xCB5A
+#define _MTL_C20_B_MPLLB_CFG	0xCB4E
+
+#define _XE2HPD_C20_A_TX_CNTX_CFG	0xCF5E
+#define _XE2HPD_C20_B_TX_CNTX_CFG	0xCF5A
+#define _XE2HPD_C20_A_CMN_CNTX_CFG	0xCE8E
+#define _XE2HPD_C20_B_CMN_CNTX_CFG	0xCE89
+#define _XE2HPD_C20_A_MPLLA_CFG		0xCE58
+#define _XE2HPD_C20_B_MPLLA_CFG		0xCE4D
+#define _XE2HPD_C20_A_MPLLB_CFG		0xCCC2
+#define _XE2HPD_C20_B_MPLLB_CFG		0xCCB6
+
+#define C20_GET_ADDR(platform, idx)	((platform) - (idx))
+
+#define C20_PHY_TX_RATE		REG_GENMASK(2, 0)
+#define C20_MPLLA_FRACEN		REG_BIT(14)
+#define C20_FB_CLK_DIV4_EN		REG_BIT(13)
+#define C20_MPLLA_TX_CLK_DIV_MASK	REG_GENMASK(10, 8)
+#define C20_MPLLB_TX_CLK_DIV_MASK	REG_GENMASK(15, 13)
+#define C20_MPLLB_FRACEN		REG_BIT(13)
+#define C20_REF_CLK_MPLLB_DIV_MASK	REG_GENMASK(12, 10)
+#define C20_MULTIPLIER_MASK		REG_GENMASK(11, 0)
+#define C20_PHY_USE_MPLLB		REG_BIT(7)
 
 /* C20 Phy VSwing Masks */
 #define C20_PHY_VSWING_PREEMPH_MASK	REG_GENMASK8(5, 0)
@@ -454,10 +493,10 @@ enum intel_output_type {
 })
 
 #define DIV_ROUND_CLOSEST(x, divisor)({		\
-	typeof(x) __x = x;				\
-	typeof(divisor) __d = divisor;			\
-	(((typeof(x))-1) > 0 ||				\
-	 ((typeof(divisor))-1) > 0 || (__x) > 0) ?	\
+	decltype(x) __x = x;				\
+	decltype(divisor) __d = divisor;			\
+	(((decltype(x))-1) > 0 ||				\
+	 ((decltype(divisor))-1) > 0 || (__x) > 0) ?	\
 		(((__x) + ((__d) / 2)) / (__d)) :	\
 		(((__x) - ((__d) / 2)) / (__d));	\
 })

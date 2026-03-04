@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -25,16 +25,17 @@
 #ifndef _MTL_H
 #define _MTL_H
 
-#include "../common.h"
+#include "common.h"
 
 ddi_sel mtl_ddi_sel[] = {
 	// name     phy     de_clk  dpclk               clock_bit   mux_select_low_bit  dpll_num/port    phy_data
-	{"DDI_A",   C10,  1,      REG(0),             10,         0,                  1,          NULL,},
-	{"DDI_B",   C10,  2,      REG(0),             11,         2,                  2,          NULL,},
-	{"DDI_TC1", C20,  3,      REG(0),             11,         2,                  3,          NULL,},
-	{"DDI_TC2", C20,  4,      REG(0),             11,         2,                  4,          NULL,},
-	{"DDI_TC3", C20,  5,      REG(0),             11,         2,                  5,          NULL,},
-	{"DDI_TC4", C20,  6,      REG(0),             11,         2,                  6,          NULL,},
+	{"DDI_A",   C10,  1,      REG(0),             10,         0,                  1,          nullptr,},
+	{"DDI_B",   C10,  2,      REG(0),             11,         2,                  2,          nullptr,},
+	{"DDI_TC1", C20,  3,      REG(0),             11,         2,                  3,          nullptr,},
+	{"DDI_TC2", C20,  4,      REG(0),             11,         2,                  4,          nullptr,},
+	{"DDI_TC3", C20,  5,      REG(0),             11,         2,                  5,          nullptr,},
+	{"DDI_TC4", C20,  6,      REG(0),             11,         2,                  6,          nullptr,},
+	{"DDI_TC5", C20,  7,      REG(0),             11,         2,                  7,          nullptr,},
 };
 
 #endif

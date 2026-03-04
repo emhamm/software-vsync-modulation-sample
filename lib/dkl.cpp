@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -22,13 +22,12 @@
  *
  */
 
-#include <math.h>
-#include <debug.h>
-#include <signal.h>
-#include <unistd.h>
-#include <time.h>
-#include "mmio.h"
 #include "dkl.h"
+#include "macros.h"
+#include "mmio.h"
+#include "debug.h"
+#include "utils.h"
+#include <cmath>
 
 dkl_phy_reg dkl_table[] = {
 	{REG(DKL_PLL_DIV0(0)), REG(DKL_VISA_SERIALIZER(0)), REG(DKL_BIAS(0)), REG(DKL_SSC(0)), REG(DKL_DCO(0)), REG(HIP_INDEX_REG(0)),
@@ -57,33 +56,33 @@ register_info reg_dkl_bias = { "DKL_BIAS",
 /**
  * @brief Construct a new dkl::dkl object
  *
- * @param ds
+ * @param dsel
  * @param first_dkl_phy_loc
  */
-dkl::dkl(ddi_sel* ds, int first_dkl_phy_loc, int _pipe) : phys(_pipe)
+dkl::dkl(ddi_sel* dsel, int first_dkl_phy_loc, int _pipe) : phys(_pipe)
 {
 	TRACING();
 	unsigned int val;
 	dkl_phy = {};
 	dpll_num = 0;
 
-	if (!ds) {
+	if (!dsel) {
 		ERR("ddi_sel pointer is null\n");
 		return;
 	}
 
-	if (ds->de_clk < first_dkl_phy_loc) {
-		ERR("Invalid de_clk (0x%X) or the location of the first dkl phy (0x%X).\n", ds->de_clk, first_dkl_phy_loc);
+	if (dsel->de_clk < first_dkl_phy_loc) {
+		ERR("Invalid de_clk (0x%X) or the location of the first dkl phy (0x%X).\n", dsel->de_clk, first_dkl_phy_loc);
 		return;
 	}
-	dpll_num = ds->de_clk - first_dkl_phy_loc;
-	val = READ_OFFSET_DWORD(dkl_table[ds->de_clk - first_dkl_phy_loc].dkl_pll_div0.addr);
+	dpll_num = dsel->de_clk - first_dkl_phy_loc;
+	val = READ_OFFSET_DWORD(dkl_table[dsel->de_clk - first_dkl_phy_loc].dkl_pll_div0.addr);
 	if (val != 0xFFFFFFFF) {
 		// One PHY should be connected to one display only
 		if (!dkl_table[dpll_num].enabled) {
 			dkl_table[dpll_num].enabled = 1;
 			dkl_phy = &dkl_table[dpll_num];
-			set_ds(ds);
+			set_ds(dsel);
 			set_init(true);
 			done = 1;
 		}
@@ -129,7 +128,7 @@ void dkl::read_registers()
  * @param None
  * @return double - The calculated PLL clock
  */
-double dkl::calculate_pll_clock()
+double dkl::calculate_pll_clock(void)
 {
 	TRACING();
 	uint32_t div0 = READ_OFFSET_DWORD(dkl_phy->dkl_pll_div0.addr);
@@ -159,7 +158,7 @@ double dkl::calculate_pll_clock(uint32_t dkl_pll_div0, uint32_t dkl_bias)
 	int i_fbprediv_3_0 = GETBITS_VAL(dkl_pll_div0, 11, 8);
 	int i_fbdiv_intgr_7_0 = GETBITS_VAL(dkl_pll_div0, 7, 0);
 	int i_fbdivfrac_21_0 = GETBITS_VAL(dkl_bias, 29, 8);
-	double pll_freq = (double)(REF_CLK_FREQ * i_fbprediv_3_0 * (i_fbdiv_intgr_7_0 + i_fbdivfrac_21_0 / pow(2, 22)));
+	double pll_freq = REF_CLK_FREQ * i_fbprediv_3_0 * (i_fbdiv_intgr_7_0 + i_fbdivfrac_21_0 / pow(2, 22));
 	return pll_freq;
 }
 
@@ -200,11 +199,11 @@ int dkl::calculate_feedback_dividers(double pll_freq)
 	dkl_phy->dkl_dco.mod_val &= ~BIT(2);
 	dkl_phy->dkl_dco.mod_val |= 0x2 << 1;
 
-	DBG("\tdkl_pll_div0[0x%X]: 0x%X -> 0x%X\n", dkl_phy->dkl_pll_div0.addr, div0, dkl_phy->dkl_pll_div0.mod_val);
-	DBG("\tdkl_visa_serializer[0x%X]: 0x%X -> 0x%X\n", dkl_phy->dkl_visa_serializer.addr, dkl_phy->dkl_visa_serializer.orig_val, dkl_phy->dkl_visa_serializer.mod_val);
-	DBG("\tdkl_bias[0x%X]: 0x%X -> 0x%X\n", dkl_phy->dkl_bias.addr, bias, dkl_phy->dkl_bias.mod_val);
-	DBG("\tdkl_ssc[0x%X]: 0x%X -> 0x%X\n", dkl_phy->dkl_ssc.addr, dkl_phy->dkl_ssc.orig_val, dkl_phy->dkl_ssc.mod_val);
-	DBG("\tdkl_dco[0x%X]: 0x%X -> 0x%X\n", dkl_phy->dkl_dco.addr, dkl_phy->dkl_dco.orig_val, dkl_phy->dkl_dco.mod_val);
+	DBG("\tdkl_pll_div0[0x%lX]: 0x%X -> 0x%X\n", dkl_phy->dkl_pll_div0.addr, div0, dkl_phy->dkl_pll_div0.mod_val);
+	DBG("\tdkl_visa_serializer[0x%lX]: 0x%X -> 0x%X\n", dkl_phy->dkl_visa_serializer.addr, dkl_phy->dkl_visa_serializer.orig_val, dkl_phy->dkl_visa_serializer.mod_val);
+	DBG("\tdkl_bias[0x%lX]: 0x%X -> 0x%X\n", dkl_phy->dkl_bias.addr, bias, dkl_phy->dkl_bias.mod_val);
+	DBG("\tdkl_ssc[0x%lX]: 0x%X -> 0x%X\n", dkl_phy->dkl_ssc.addr, dkl_phy->dkl_ssc.orig_val, dkl_phy->dkl_ssc.mod_val);
+	DBG("\tdkl_dco[0x%lX]: 0x%X -> 0x%X\n", dkl_phy->dkl_dco.addr, dkl_phy->dkl_dco.orig_val, dkl_phy->dkl_dco.mod_val);
 
 	return 0;
 }
@@ -222,27 +221,27 @@ void dkl::calculate_feedback_dividers(double pll_freq, uint32_t dkl_pll_div0,
 	uint8_t* i_fbdiv_intgr_7_0, uint32_t* i_fbdivfrac_21_0)
 {
 	TRACING();
-	const uint8_t max_int_part = 0xFF;
-	const uint32_t max_frac_part = 0x3FFFFF;
+	const uint8_t MAX_INT_PART = 0xFF;
+	const uint32_t MAX_FRAC_PART = 0x3FFFFF;
 
 	uint8_t i_fbprediv_3_0 = GETBITS_VAL(dkl_pll_div0, 11, 8);
 	double F = pll_freq / (REF_CLK_FREQ * i_fbprediv_3_0);
 
-	if (!i_fbdiv_intgr_7_0 || !i_fbdivfrac_21_0) {
+	if (i_fbdiv_intgr_7_0 == nullptr || i_fbdivfrac_21_0 == nullptr) {
 		ERR("Invalid pointer\n");
 		return;
 	}
 	// Calculate the integer part (8-bit, 0-0xFF)
-	*i_fbdiv_intgr_7_0 = (uint8_t)fmin(floor(F), max_int_part);
+	*i_fbdiv_intgr_7_0 = static_cast<uint8_t>(fmin(floor(F), MAX_INT_PART));
 
 	// Calculate the fractional part
-	double fractional_part = F - (double)*i_fbdiv_intgr_7_0;
+	double fractional_part = F - static_cast<double>(*i_fbdiv_intgr_7_0);
 
 	// Calculate the 22-bit fractional part (0 - 0x3FFFFF)
-	*i_fbdivfrac_21_0 = (uint32_t)round(fractional_part * pow(2, 22));
+	*i_fbdivfrac_21_0 = static_cast<uint32_t>(round(fractional_part * pow(2, 22)));
 
-	if (*i_fbdivfrac_21_0 > max_frac_part) {
-		*i_fbdivfrac_21_0 = max_frac_part;
+	if (*i_fbdivfrac_21_0 > MAX_FRAC_PART) {
+		*i_fbdivfrac_21_0 = MAX_FRAC_PART;
 	}
 }
 
@@ -283,7 +282,7 @@ void dkl::print_registers()
 * - 1 = modified
 * @return 0 - success, non zero - failure
 */
-int dkl::program_mmio(int mod)
+int dkl::program_mmio(bool mod)
 {
 	TRACING();
 

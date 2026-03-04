@@ -1,6 +1,6 @@
 #!/bin/bash
 # *
-# * Copyright © 2024 Intel Corporation
+# * Copyright © 2024-2026 Intel Corporation
 # *
 # * Permission is hereby granted, free of charge, to any person obtaining a
 # * copy of this software and associated documentation files (the "Software"),
@@ -21,17 +21,14 @@
 # * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # * IN THE SOFTWARE.
 
-#  Change/update values as per needed.
-
-
-# Define command line parameters for ptp and vsync_test tools
+# Define command line parameters for ptp and swgenlock tools
 
 SUDO="sudo"
 
 # Primary machine configuration
 PRIMARY_INERFACE="enpxxxx"
 PRIMARY_ETH_ADDR="xx:xx:xx:xx:xx:xx"
-PRIMARY_PROJ_PATH="<path on primary>/project" # Sample path
+PRIMARY_PROJ_PATH="<path on primary>/project/build" # Sample path with cmake
 PRIMARY_DEVICE="/dev/dri/card0"
 
 # Secondary machine configuration.
@@ -40,10 +37,10 @@ SECONDARY_ADDRESS="user@192.xxx.xx.xx"
 SECONDARY_INTERFACE="enpxxxx"
 SECONDARY_DEVICE="/dev/dri/card0"
 
-VSYNCTEST="vsync_test"
-VSYNCTEST_APP="test/$VSYNCTEST"
-SYNCTEST_APP="synctest/synctest"
-VBLTEST_APP="vbltest/vbltest"
+SWGENLOCK="swgenlock"
+SWGENLOCK_APP="swgenlock/$SWGENLOCK"
+PLLCTL_APP="pllctl/pllctl"
+VBLMON_APP="vblmon/vblmon"
 # Path on secondary where the executable will be copied to
 # Update path as needed. e.g user's home directory
 CLIENT_DIR="<user home directory>/.vblanksync"

@@ -1,11 +1,46 @@
+/*
+ * Copyright © 2024-2026 Intel Corporation
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the next
+ * paragraph) shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
+ *
+ */
 
-#include <math.h>
-#include <debug.h>
-#include <signal.h>
-#include <unistd.h>
-#include <memory.h>
-#include <time.h>
 #include "phy.h"
+#include "debug.h"
+#include "common.h"
+#include "mmio.h"
+#include "process_platform.h"
+#include "system_platform.h"
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+
+// Nanoseconds per second conversion factor
+static const long NANOSECONDS_PER_SECOND = 1000000000L;
+constexpr long MICROSECONDS_TO_MILLISECONDS = 1000;
+constexpr double PERCENT_PRECISION_FACTOR = 10000.0;
+constexpr double PERCENT_TO_FRACTION = 100.0;
+
+// Global timestamp variables for performance measurement
+static os_timespec g_start_time;
+static os_timespec g_end_time;
 
 /**
 * @brief
@@ -22,16 +57,16 @@
 * that was saved on the user-space stack by the kernel
 * @return void
 */
-void phys::reset_phy_regs(int sig, siginfo_t* si, void* uc)
+void phys::reset_phy_regs(int sig UNUSED, siginfo_t* si, void* /*context*/)
 {
-	phys* ph = (phys*)si->si_value.sival_ptr;
-	if (!ph) {
+	phys* phy = (phys*)si->si_value.sival_ptr;
+	if (!phy) {
 		ERR("Received null pointer in signal handler.");
 		return;
 	}
 
 	DBG("Signal handled for timer expiration.\n");
-	ph->reset_phy_regs();
+	phy->reset_phy_regs();
 }
 
 /**
@@ -55,9 +90,17 @@ void phys::reset_phy_regs()
 	// set_pll_clock is expected to restore the original value using pll_freq_orig (double).
 	// However, due to precision loss when converting from double to divider factors,
 	// we explicitly set the registers back to the original value as a safeguard.
-	program_mmio(0);
+	program_mmio(false);
 
-	done = 1;
+	os_clock_gettime(OS_CLOCK_MONOTONIC, &g_end_time);
+	// Calculate elapsed time in nanoseconds
+	long elapsed_ns = (g_end_time.tv_sec - g_start_time.tv_sec) * NANOSECONDS_PER_SECOND +
+						(g_end_time.tv_nsec - g_start_time.tv_nsec);
+	// Convert to seconds with nanosecond precision
+	double elapsed_time_sec = (double)elapsed_ns / (double)NANOSECONDS_PER_SECOND;
+	INFO("\t[Total Elapsed time: %.9f sec]\n", elapsed_time_sec);
+
+	done = true;
 }
 
 /**
@@ -80,8 +123,8 @@ int phys::program_phy(double time_diff, double shift, double shift2, int step_th
 						int wait_between_steps, bool reset, bool commit)
 {
 	TRACING();
-	ddi_sel* ds = get_ds();
-	if (!ds) {
+	ddi_sel* dsel = get_ds();
+	if (!dsel) {
 		ERR("Invalid ddi_sel\n");
 		return 1;
 	}
@@ -104,7 +147,7 @@ int phys::program_phy(double time_diff, double shift, double shift2, int step_th
 	shift = fabs(shift);
 
 	// Use larger shift for desired frequency calculation if time_diff is greater than 1 ms
-	double _shift = ((shift2 && (fabs(time_diff) * 1000) >= step_threshold) ? shift2 : shift);
+	double _shift = ((shift2 && (fabs(time_diff) * MICROSECONDS_TO_MILLISECONDS) >= step_threshold) ? shift2 : shift);
 
 	int steps = CALC_STEPS_TO_SYNC(time_diff, _shift);
 	DBG("steps are %d - (Step threshold = %d us)\n", steps, step_threshold);
@@ -117,8 +160,7 @@ int phys::program_phy(double time_diff, double shift, double shift2, int step_th
 	// - A **positive `time_diff`** indicates that timestamps should drift forward, requiring a **decrease** in PLL frequency.
 	//   This increases the vblank time period, effectively delaying the timestamps.
 	// - A **negative `time_diff`** indicates that timestamps should drift backward, requiring an **increase** in PLL frequency.
-	//   This decreases the vblank time period, effectively advancing the timestamps.
-	double shift_impact = _shift * pll_clock / 100;
+	double shift_impact = _shift * pll_clock / PERCENT_TO_FRACTION;
 	double direction_adjustment = (time_diff > 0) ? -1 : 1;
 	double delta = shift_impact * direction_adjustment;
 
@@ -130,10 +172,14 @@ int phys::program_phy(double time_diff, double shift, double shift2, int step_th
 
 	// If commit is false, the function logs the calculated values above
 	// but does not update the hardware registers.
-	if (!commit || !steps) {
+	if (!commit || steps == 0) {
 		WARNING("Registers not updated\n");
 		return 0;
 	}
+
+	// Captures current timestamp and stores it globally for elapsed time measurement
+	// This capturing is for debugging and troubleshooting.
+	os_clock_gettime(OS_CLOCK_MONOTONIC, &g_start_time);
 
 	if (set_pll_clock(pll_clock, new_pll_clock, shift, wait_between_steps, commit) != 0) {
 		ERR("Failed to set PLL clock.\n");
@@ -147,7 +193,7 @@ int phys::program_phy(double time_diff, double shift, double shift2, int step_th
 	if (reset) {
 		// For whichever PHY we find, let's set the done flag to 0 so that we can later
 		// have a timer for it to reset the default values back in their registers
-		done = 0;
+		done = false;
 		_wait_between_steps = wait_between_steps;
 		make_timer((long)steps, this, reset_phy_regs);
 	}
@@ -163,13 +209,13 @@ int phys::program_phy(double time_diff, double shift, double shift2, int step_th
 * @param t - The timer which needs to be deleted
 * @return void
 */
-void phys::wait_until_done()
+void phys::wait_until_done(void)
 {
 	TRACING();
 
 	// Wait to write back the original value.  Exit loop if Ctrl+C pressed
 	while (!done && !lib_client_done) {
-		usleep(1000);
+		os_usleep(MICROSECONDS_TO_MILLISECONDS);
 	}
 
 	// Restore original values in case of app termination
@@ -230,9 +276,9 @@ int phys::set_pll_clock(double current_pll_clock, double target_pll_clock, doubl
 	// Calculate the percentage difference between current and desired clocks
 	double percent_diff = (fabs(target_pll_clock - current_pll_clock) / current_pll_clock) * 100;
 	// Use back upto 4 decimal places
-	percent_diff = round(percent_diff * 10000.0) / 10000.0;
+	percent_diff = round(percent_diff * PERCENT_PRECISION_FACTOR) / PERCENT_PRECISION_FACTOR;
 	// Determine the direction of the change
-	double step_direction = (target_pll_clock > current_pll_clock) ? 1.0 : -1.0;
+	const double step_direction = (target_pll_clock > current_pll_clock) ? 1.0 : -1.0;
 
 	// Initialize steps to 1 for the case where the change is within shift limits
 	int steps = 1;
@@ -242,7 +288,7 @@ int phys::set_pll_clock(double current_pll_clock, double target_pll_clock, doubl
 	if (percent_diff > shift) {
 		INFO("Large PLL clock change detected. Applying in steps.\n");
 		// Calculate the total change needed
-		double total_change = target_pll_clock - current_pll_clock;
+		const double total_change = target_pll_clock - current_pll_clock;
 
 		// Calculate the ideal step size based on the shift percentage
 		step_size = current_pll_clock * shift / 100.0 * step_direction;
@@ -276,7 +322,7 @@ int phys::set_pll_clock(double current_pll_clock, double target_pll_clock, doubl
 			return 1;
 		}
 
-		if (commit && program_mmio(1) != 0) {
+		if (commit && program_mmio(true) != 0) {
 			ERR("Failed to program MMIO during PLL adjustment step %d\n", i + 1);
 			return 1;
 		}
@@ -284,7 +330,7 @@ int phys::set_pll_clock(double current_pll_clock, double target_pll_clock, doubl
 		// Wait is needed otherwise changing registers quickly will create trearing on screen.
 		// Wait only if stepping multiple times
 		if (steps > 1) {
-			usleep(wait_between_steps * 1000); // Convert to microseconds
+			os_usleep(wait_between_steps * MICROSECONDS_TO_MILLISECONDS); // Convert to microseconds
 		}
 	}
 

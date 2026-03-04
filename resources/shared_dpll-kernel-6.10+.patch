@@ -27,7 +27,7 @@ index 1799a6643128..988ac2421309 100644
 @@ -125,6 +125,11 @@ intel_display_param_named_unsafe(enable_dmc_wl, bool, 0400,
  	"(0=disabled, 1=enabled) "
  	"Default: 0");
- 
+
 +intel_display_param_named_unsafe(share_dplls, bool, 0400,
 +	"Share dplls between ports with same HW states "
 +	"(0=disabled, 1=enabled) "
@@ -45,7 +45,7 @@ index 1208a62c16d2..70d6b7d42245 100644
  	param(bool, enable_psr2_sel_fetch, true, 0400) \
  	param(bool, enable_dmc_wl, false, 0400) \
 +	param(bool, share_dplls, true, 0400) \
- 
+
  #define MEMBER(T, member, ...) T member;
  struct intel_display_params {
 diff --git a/drivers/gpu/drm/i915/display/intel_dpll_mgr.c b/drivers/gpu/drm/i915/display/intel_dpll_mgr.c
@@ -59,30 +59,30 @@ index 90998b037349..3b790ffe283d 100644
 +	struct intel_display *display = &i915->display;
  	unsigned long dpll_mask_all = intel_dpll_mask_all(i915);
  	struct intel_shared_dpll_state *shared_dpll;
- 	struct intel_shared_dpll *unused_pll = NULL;
+ 	struct intel_shared_dpll *unused_pll = nullptr;
  	enum intel_dpll_id id;
 +	int total_plls = 0;
- 
+
  	shared_dpll = intel_atomic_get_shared_dpll_state(&state->base);
- 
+
  	drm_WARN_ON(&i915->drm, dpll_mask & ~dpll_mask_all);
- 
+
 +	for_each_set_bit(id, &dpll_mask, I915_NUM_PLLS) {
 +		total_plls++;
 +	}
 +
  	for_each_set_bit(id, &dpll_mask, fls(dpll_mask_all)) {
  		struct intel_shared_dpll *pll;
- 
+
 @@ -381,7 +387,7 @@ intel_find_shared_dpll(struct intel_atomic_state *state,
  			continue;
  		}
- 
+
 -		if (memcmp(dpll_hw_state,
 +		if ((display->params.share_dplls || total_plls == 1) && memcmp(dpll_hw_state,
  			   &shared_dpll[pll->index].hw_state,
  			   sizeof(*dpll_hw_state)) == 0) {
  			drm_dbg_kms(&i915->drm,
--- 
+--
 2.43.0
 
