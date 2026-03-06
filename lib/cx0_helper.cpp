@@ -1,10 +1,32 @@
-#include <signal.h>
-#include <errno.h>
-#include <time.h>
+/*
+ * Copyright © 2024-2026 Intel Corporation
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the next
+ * paragraph) shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
+ *
+ */
+
 #include "cx0_helper.h"
 #include "mmio.h"
 #include "debug.h"
 #include "common.h"
+#include <cerrno>
 
 namespace cx0 {
 
@@ -36,8 +58,8 @@ namespace cx0 {
  */
 int __intel_wait_for_register_fw(
 				 u32 reg,
-				 u32 mask,
-				 u32 value,
+				 u32 mask UNUSED,
+				 u32 value UNUSED,
 				 u32 *out_value)
 {
 	u32 reg_value = 0;
@@ -97,7 +119,7 @@ int __intel_wait_for_register(
 int intel_wait_for_register(u32 reg,
 			u32 mask,
 			u32 value,
-			unsigned int timeout_ms)
+			unsigned int timeout_ms UNUSED)
 {
 	return __intel_wait_for_register(reg, mask, value, NULL);
 }

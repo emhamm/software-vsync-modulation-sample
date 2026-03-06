@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -25,15 +25,15 @@
 #ifndef _ADL_S_H
 #define _ADL_S_H
 
-#include "../common.h"
+#include "common.h"
 
 ddi_sel adl_s_ddi_sel[] = {
 	// name     phy     de_clk  dpclk               clock_bit   mux_select_low_bit  dpll_num    phy_data
-	{"DDI_A",   COMBO,  1,      REG(DPCLKA_CFGCR0), 10,         0,                  0,          NULL,},
-	{"DDI_C1",  COMBO,  4,      REG(DPCLKA_CFGCR0), 11,         2,                  0,          NULL,},
-	{"DDI_C2",  COMBO,  5,      REG(DPCLKA_CFGCR0), 24,         4,                  0,          NULL,},
-	{"DDI_C3",  COMBO,  6,      REG(DPCLKA_CFGCR1), 4,          0,                  0,          NULL,},
-	{"DDI_C4",  COMBO,  7,      REG(DPCLKA_CFGCR1), 5,          2,                  0,          NULL,},
+	{"DDI_A",   COMBO,  1,      REG(DPCLKA_CFGCR0), 10,         0,                  0,          nullptr,},
+	{"DDI_C1",  COMBO,  4,      REG(DPCLKA_CFGCR0), 11,         2,                  0,          nullptr,},
+	{"DDI_C2",  COMBO,  5,      REG(DPCLKA_CFGCR0), 24,         4,                  0,          nullptr,},
+	{"DDI_C3",  COMBO,  6,      REG(DPCLKA_CFGCR1), 4,          0,                  0,          nullptr,},
+	{"DDI_C4",  COMBO,  7,      REG(DPCLKA_CFGCR1), 5,          2,                  0,          nullptr,},
 };
 
 

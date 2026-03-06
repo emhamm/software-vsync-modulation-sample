@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -40,6 +40,11 @@ extern log_level dbg_lvl;
 
 void log_message(log_level level, const char* format, ...);
 
+// Thread-local pipe context for multi-pipe logging
+void set_thread_pipe_id(int pipe_id);
+int get_thread_pipe_id(void);
+void clear_thread_pipe_id(void);
+
 #define PRINT(format, ...) \
 	log_message(LOG_LEVEL_NONE, format, ##__VA_ARGS__)
 
@@ -57,6 +62,22 @@ void log_message(log_level level, const char* format, ...);
 
 #define TRACE(format, ...) \
 	log_message(LOG_LEVEL_TRACE, format, ##__VA_ARGS__)
+
+// Optional explicit pipe-aware logging macros for clarity
+#define ERR_PIPE(pipe, format, ...) \
+	do { int _saved = get_thread_pipe_id(); set_thread_pipe_id(pipe); \
+	     log_message(LOG_LEVEL_ERROR, format, ##__VA_ARGS__); \
+	     set_thread_pipe_id(_saved); } while(0)
+
+#define INFO_PIPE(pipe, format, ...) \
+	do { int _saved = get_thread_pipe_id(); set_thread_pipe_id(pipe); \
+	     log_message(LOG_LEVEL_INFO, format, ##__VA_ARGS__); \
+	     set_thread_pipe_id(_saved); } while(0)
+
+#define DBG_PIPE(pipe, format, ...) \
+	do { int _saved = get_thread_pipe_id(); set_thread_pipe_id(pipe); \
+	     log_message(LOG_LEVEL_DEBUG, format, ##__VA_ARGS__); \
+	     set_thread_pipe_id(_saved); } while(0)
 
 /*
 The existing trace object initialization code used __FUNCTION__,

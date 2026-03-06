@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -22,32 +22,30 @@
  *
  */
 
-#include <math.h>
-#include <debug.h>
-#include <signal.h>
-#include <errno.h>
-#include <time.h>
-#include "mmio.h"
 #include "c20.h"
+#include "mmio.h"
+#include "debug.h"
+#include <cmath>
 
  /**
   * @brief
   * Constructor for c20 class
-  * @param ds
-  * @param pipe
+  * @param dsel - Pointer to ddi_sel structure
+  * @param pipe - The pipe number
+  * @param isBMG - true if the platform is BMG, false otherwise
   */
-c20::c20(ddi_sel* ds, int _pipe) : phys(_pipe)
+c20::c20(ddi_sel* dsel, int _pipe, bool _isBMG) : phys(_pipe), isBMG(_isBMG)
 {
 	c20_reg = {};
 	TRACING();
-	if (!ds) {
+	if (!dsel) {
 		ERR("ddi_sel pointer is null\n");
 		return;
 	}
 
 	memset(&c20_reg, 0, sizeof(c20_reg));
-	ds->phy_data = &c20_reg;
-	set_ds(ds);
+	dsel->phy_data = &c20_reg;
+	set_ds(dsel);
 	set_init(true);
 	done = 1;
 	phy_type = C20;
@@ -72,11 +70,11 @@ static inline unsigned long long mul_u32_u32(u32 a, u32 b)
  * @param None
  * @return double - The calculated PLL clock
  */
-double c20::calculate_pll_clock()
+double c20::calculate_pll_clock(void)
 {
 	TRACING();
-	ddi_sel* ds = get_ds();
-	if (!ds) {
+	ddi_sel* dsel = get_ds();
+	if (!dsel) {
 		ERR("Invalid ddi_sel\n");
 		return 0;
 	}
@@ -192,25 +190,25 @@ void c20::print_registers()
 void c20::read_registers()
 {
 	TRACING();
-	ddi_sel* ds = get_ds();
-	if (!ds) {
+	ddi_sel* dsel = get_ds();
+	if (!dsel) {
 		ERR("Invalid ddi_sel\n");
 		return;
 	}
 
-	u32 port = ds->de_clk - 1;
+	u32 port = dsel->de_clk - 1;
 
 	bool cntx = intel_cx0_read(port, INTEL_CX0_LANE0, PHY_C20_VDR_CUSTOM_SERDES_RATE) & PHY_C20_CONTEXT_TOGGLE;
 	/* Read Tx configuration */
 	for (int i = 0; i < ARRAY_SIZE(c20_reg.tx); i++) {
 		if (cntx)
 			c20_reg.tx[i] = intel_c20_sram_read(port, INTEL_CX0_LANE0,
-				PHY_C20_B_TX_CNTX_CFG(i));
+				C20_GET_ADDR(isBMG ? _XE2HPD_C20_B_TX_CNTX_CFG : _MTL_C20_B_TX_CNTX_CFG, i));
 		else
 			c20_reg.tx[i] = intel_c20_sram_read(port, INTEL_CX0_LANE0,
-				PHY_C20_A_TX_CNTX_CFG(i));
+				C20_GET_ADDR(isBMG ? _XE2HPD_C20_A_TX_CNTX_CFG : _MTL_C20_A_TX_CNTX_CFG, i));
 
-		DBG("Tx[%d] = %d [0x%x]\n", i, c20_reg.tx[i], c20_reg.tx[i]);
+		DBG("Tx[%d] = %d [0x%x], cntx = %d\n", i, c20_reg.tx[i], c20_reg.tx[i], cntx);
 		c20_reg.tx_rate = REG_FIELD_GET(C20_PHY_TX_RATE, c20_reg.tx[0]);
 	}
 
@@ -218,10 +216,10 @@ void c20::read_registers()
 	for (int i = 0; i < ARRAY_SIZE(c20_reg.cmn); i++) {
 		if (cntx)
 			c20_reg.cmn[i] = intel_c20_sram_read(port, INTEL_CX0_LANE0,
-				PHY_C20_B_CMN_CNTX_CFG(i));
+				C20_GET_ADDR(isBMG ? _XE2HPD_C20_B_CMN_CNTX_CFG : _MTL_C20_B_CMN_CNTX_CFG, i));
 		else
 			c20_reg.cmn[i] = intel_c20_sram_read(port, INTEL_CX0_LANE0,
-				PHY_C20_A_CMN_CNTX_CFG(i));
+				C20_GET_ADDR(isBMG ? _XE2HPD_C20_A_CMN_CNTX_CFG : _MTL_C20_A_CMN_CNTX_CFG, i));
 
 		DBG("cmn[%d]=%d\n", i, c20_reg.cmn[i]);
 	}
@@ -239,10 +237,10 @@ void c20::read_registers()
 		for (int i = 0; i < ARRAY_SIZE(c20_reg.pll_state_orig); i++) {
 			if (cntx)
 				c20_reg.pll_state_orig[i] = intel_c20_sram_read(port, INTEL_CX0_LANE0,
-					PHY_C20_B_MPLLB_CNTX_CFG(i));
+					C20_GET_ADDR(isBMG ? _XE2HPD_C20_B_MPLLB_CFG : _MTL_C20_B_MPLLB_CFG, i));
 			else
 				c20_reg.pll_state_orig[i] = intel_c20_sram_read(port, INTEL_CX0_LANE0,
-					PHY_C20_A_MPLLB_CNTX_CFG(i));
+					C20_GET_ADDR(isBMG ? _XE2HPD_C20_A_MPLLB_CFG : _MTL_C20_A_MPLLB_CFG, i));
 
 			c20_reg.pll_state_mod[i] = c20_reg.pll_state_orig[i];
 			DBG("MPLLB[%d] = %d [0x%x]\n", i, c20_reg.pll_state_orig[i], c20_reg.pll_state_orig[i]);
@@ -272,10 +270,10 @@ void c20::read_registers()
 		for (int i = 0; i < ARRAY_SIZE(c20_reg.pll_state_orig); i++) {
 			if (cntx)
 				c20_reg.pll_state_orig[i] = intel_c20_sram_read(port, INTEL_CX0_LANE0,
-					PHY_C20_B_MPLLA_CNTX_CFG(i));
+					C20_GET_ADDR(isBMG ? _XE2HPD_C20_B_MPLLA_CFG : _MTL_C20_B_MPLLA_CFG, i));
 			else
 				c20_reg.pll_state_orig[i] = intel_c20_sram_read(port, INTEL_CX0_LANE0,
-					PHY_C20_A_MPLLA_CNTX_CFG(i));
+					C20_GET_ADDR(isBMG ? _XE2HPD_C20_A_MPLLA_CFG : _MTL_C20_A_MPLLA_CFG, i));
 
 			c20_reg.pll_state_mod[i] = c20_reg.pll_state_orig[i];
 			DBG("MPLLA[%d] = %d [0x%x]\n", i, c20_reg.pll_state_orig[i], c20_reg.pll_state_orig[i]);
@@ -309,14 +307,16 @@ void c20::read_registers()
  * - 1 = modified
  * @return 0 - success, non zero - failure
  */
-int c20::program_mmio(int mod)
+int c20::program_mmio(bool mod)
 {
 	TRACING();
 
-	ddi_sel* ds = get_ds();
+	ddi_sel* dsel = get_ds();
+	u32 port = dsel->de_clk - 1;
 
-	u32 port = ds->de_clk - 1;
-
+	// Xe leverages i915 display code, where the driver typically uses a context-aware
+	// approach (e.g., cntx) for register programming.
+	// In this case, however, direct register writes prove effective for SWGenlock.
 	if (c20_reg.tx[0] & C20_PHY_USE_MPLLB) {
 		intel_c20_sram_write(port, INTEL_CX0_LANE0, RAWCMN_DIG_MPLLB_CNTX_CFG_8,
 			mod ? c20_reg.pll_state_mod[RAWCMN_DIG_CFG_INDEX_8] : c20_reg.pll_state_orig[RAWCMN_DIG_CFG_INDEX_8]);

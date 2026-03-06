@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -28,8 +28,9 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+
 // Define a fixed-size array for fields (adjust MAX_FIELDS if needed)
-#define MAX_FIELDS 32
+constexpr long MAX_FIELDS = 32;
 
 // Structure to hold field information
 typedef struct {
@@ -44,7 +45,7 @@ typedef struct {
     field_info fields[MAX_FIELDS+1];
 } register_info;
 
-void print_register(uint32_t reg_value, int offset,
+void print_register(uint32_t reg_value, uint64_t offset,
 						   const register_info* reg_info);
 
 #endif

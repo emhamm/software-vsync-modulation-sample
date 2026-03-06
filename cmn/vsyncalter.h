@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -28,10 +28,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <debug.h>
+#include <version.h>
 
 #define VSYNC_ONE_VSYNC_PERIOD_IN_MS        16.666
 #define VSYNC_MAX_TIMESTAMPS                100
 #define VSYNC_ALL_PIPES                     4
+#define VSYNC_PIPE_RANGE_MIN                0
+#define VSYNC_PIPE_RANGE_MAX                3
 #define VSYNC_DEFAULT_DEVICE                "/dev/dri/card0"
 #define VSYNC_DEFAULT_PIPE                  0
 #define VSYNC_DEFAULT_SHIFT                 0.01
@@ -41,11 +44,12 @@
 #define VSYNC_DEFAULT_WAIT_IN_MS            50
 #define VSYNC_TIME_DELTA_FOR_STEP           1000
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int vsync_lib_init(const char *device_str, bool dp_m_n);
+int vsync_lib_init(const char *device_str, bool dp_m_n, bool hardware_ts);
 int vsync_lib_uninit();
 int synchronize_vsync(double time_diff, int pipe, double shift, double shift2,
 						int step_threshold, int wait_between_steps, bool reset,
@@ -62,6 +66,8 @@ const char* find_first_dri_card(void);
 int set_log_mode(const char* mode);
 int set_log_level(log_level level);
 int set_log_level_str(const char* log_level);
+log_level get_log_level(void);
+const char* get_log_level_str(void);
 
 #ifdef __cplusplus
 }

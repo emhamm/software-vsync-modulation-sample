@@ -1,0 +1,35 @@
+#Example Run : find . -type f \( -name "*.cpp" -or -name "*.h" \) -exec clang-format -i {} +
+---
+#Use the LLVM style as the base.You can choose other styles like Google, Chromium, Mozilla, WebKit.
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+UseTab: Always
+TabWidth: 4
+BreakBeforeBraces: Linux
+BraceWrapping:
+  AfterFunction: true          # Braces for functions start on a new line (Allman style)
+  AfterControlStatement: false # Braces for control statements start on the same line (K&R style)
+  AfterNamespace: true         # Optional: Braces for namespaces start on a new line
+  AfterClass: true             # Optional: Braces for classes start on a new line
+  AfterStruct: true            # Optional: Braces for structs start on a new line
+  AfterEnum: true              # Optional: Braces for enums start on a new line
+  IndentBraces: false          # Do not indent braces
+
+SpaceBeforeParens: ControlStatements
+AlignAfterOpenBracket: Align
+AlignTrailingComments: true
+PointerAlignment: Right
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: false
+#Remove redundant empty lines
+MaxEmptyLinesToKeep: 1
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: false
+IndentAccessModifiers: true
+AccessModifierOffset: 0
+
+#Optional : Control blank lines around namespaces
+NamespaceIndentation: All

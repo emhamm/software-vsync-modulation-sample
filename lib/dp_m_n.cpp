@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -22,14 +22,11 @@
  *
  */
 
-#include <math.h>
-#include <debug.h>
-#include <signal.h>
-#include <unistd.h>
-#include <memory.h>
-#include <time.h>
-#include "mmio.h"
 #include "dp_m_n.h"
+#include "macros.h"
+#include "mmio.h"
+#include "debug.h"
+#include <cmath>
 
 #define PIPEA_M1 0x60040
 #define PIPEA_N1 0x60044
@@ -50,15 +47,14 @@ dp_m_n_phy_reg dp_m_n_table[] = {
 /**
  * @brief Constructor for a new dp_m_n::dp_m_n
  *
- * @param ds
+ * @param dsel
  * @param pipe
  */
-dp_m_n::dp_m_n(ddi_sel* ds, int _pipe) : phys(_pipe)
+dp_m_n::dp_m_n(ddi_sel* dsel, int _pipe) : phys(_pipe), dp_m_n_phy(nullptr)
 {
 	TRACING();
-	dp_m_n_phy = {};
 
-	if (!ds) {
+	if (dsel == nullptr) {
 		ERR("ddi_sel pointer is null\n");
 		return;
 	}
@@ -67,7 +63,7 @@ dp_m_n::dp_m_n(ddi_sel* ds, int _pipe) : phys(_pipe)
 	// Use pipe directly to figure out M&N Addresses
 	dp_m_n_phy = &dp_m_n_table[get_pipe()];
 	dp_m_n_phy->enabled = 1;
-	set_ds(ds);
+	set_ds(dsel);
 	set_init(true);
 	done = 1;
 	phy_type = M_N;
@@ -86,7 +82,7 @@ dp_m_n::~dp_m_n()
  *
  * @return double - The calculated PLL clock
  */
-double dp_m_n::calculate_pll_clock()
+double dp_m_n::calculate_pll_clock(void)
 {
 	TRACING();
 	// Return M value as frequency.
@@ -142,11 +138,11 @@ void dp_m_n::print_registers()
 {
 	TRACING();
 	PRINT("Original Value ->\n");
-	PRINT("\tM register[0x%X]= 0x%X, %d\n", dp_m_n_phy->mreg.addr, dp_m_n_phy->mreg.orig_val, dp_m_n_phy->mreg.orig_val);
-	PRINT("\tN register[0x%X]= 0x%X, %d\n", dp_m_n_phy->nreg.addr, dp_m_n_phy->nreg.orig_val, dp_m_n_phy->nreg.orig_val);
+	PRINT("\tM register[0x%lX]= 0x%X, %d\n", dp_m_n_phy->mreg.addr, dp_m_n_phy->mreg.orig_val, dp_m_n_phy->mreg.orig_val);
+	PRINT("\tN register[0x%lX]= 0x%X, %d\n", dp_m_n_phy->nreg.addr, dp_m_n_phy->nreg.orig_val, dp_m_n_phy->nreg.orig_val);
 	PRINT("Updated Value ->\n");
-	PRINT("\tM register[0x%X]= 0x%X, %d\n", dp_m_n_phy->mreg.addr, dp_m_n_phy->mreg.mod_val, dp_m_n_phy->mreg.mod_val);
-	PRINT("\tN register[0x%X]= 0x%X, %d\n", dp_m_n_phy->nreg.addr, dp_m_n_phy->nreg.mod_val, dp_m_n_phy->nreg.mod_val);
+	PRINT("\tM register[0x%lX]= 0x%X, %d\n", dp_m_n_phy->mreg.addr, dp_m_n_phy->mreg.mod_val, dp_m_n_phy->mreg.mod_val);
+	PRINT("\tN register[0x%lX]= 0x%X, %d\n", dp_m_n_phy->nreg.addr, dp_m_n_phy->nreg.mod_val, dp_m_n_phy->nreg.mod_val);
 
 }
 
@@ -160,7 +156,7 @@ void dp_m_n::print_registers()
 * - 1 = modified
 * @return 0 - success, non zero - failure
 */
-int dp_m_n::program_mmio(int mod)
+int dp_m_n::program_mmio(bool mod)
 {
 	TRACING();
 

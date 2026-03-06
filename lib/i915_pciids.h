@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -125,6 +125,9 @@
     0x7D55, \
     0x7DD5
 
+#define INTEL_BMG_IDS \
+    0xE20B
+
 #define INTEL_ARL_P_IDS \
     0x7D51, \
     0x7DD1
@@ -133,6 +136,9 @@
     INTEL_MTL_M_IDS, \
     INTEL_MTL_P_IDS, \
     INTEL_ARL_P_IDS
+
+#define INTEL_BMG_FAM_IDS \
+    INTEL_BMG_IDS
 
 #define INTEL_PTL_IDS \
     0xB080, \

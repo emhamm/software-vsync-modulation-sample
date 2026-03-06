@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # *
-# * Copyright © 2024 Intel Corporation
+# * Copyright © 2024-2026 Intel Corporation
 # *
 # * Permission is hereby granted, free of charge, to any person obtaining a
 # * copy of this software and associated documentation files (the "Software"),
@@ -24,8 +24,8 @@
 """
 chrony_sync_plot.py
 
-This script reads a CSV file containing Software GenLock synchronization data 
-generated using Chrony. It parses the configuration metadata (prefixed with '#') 
+This script reads a CSV file containing Software GenLock synchronization data
+generated using Chrony. It parses the configuration metadata (prefixed with '#')
 from the beginning of the file and uses the data to generate a line chart.
 
 Features:
@@ -53,7 +53,7 @@ def format_x_ticks(x, pos):
     minutes = int(x) // 60
     seconds = int(x) % 60
     return f"{int(x)} ({minutes}m {seconds}s)"
-    
+
 def clean_time_string(time_str):
     """Extract integer seconds from a string like [+3232s]"""
     try:
@@ -64,6 +64,8 @@ def clean_time_string(time_str):
 def main():
     parser = argparse.ArgumentParser(description='Plot line chart from CSV data.')
     parser.add_argument('csv_file', help='Path to the CSV file')
+    parser.add_argument('--title', default='',
+                        help='Custom text to show in the plot title (default: empty)')
     args = parser.parse_args()
 
     csv_file = args.csv_file
@@ -72,6 +74,7 @@ def main():
         print(f"Error: File not found: {csv_file}")
         return
 
+    title_suffix = ''
     subtitle_lines = []
     with open(csv_file, 'r') as file:
         for line in file:
@@ -80,6 +83,11 @@ def main():
                 if ':' in line:
                     key, value = line.split(':', 1)
                     key, value = key.strip(), value.strip()
+
+                    if key == 'Title':
+                        title_suffix = value
+                        continue
+
                     subtitle_lines.append(f"{key}: {value}")
                     if key.lower() == 'time_period':
                         try:
@@ -102,7 +110,7 @@ def main():
         for row in reader:
             if not row or row[0].startswith('#') or len(row) < 2:
                 continue
-            
+
             time_sec = clean_time_string(row[0])
             try:
                 y_val = float(row[1].strip())
@@ -115,14 +123,17 @@ def main():
     if not time_seconds:
         print("No valid data found.")
         return
-    
+
+    # Calculate and print average duration
+    avg_duration = sum(y_values) / len(y_values)
+
     def format_x_ticks(x, pos):
         total_seconds = int(x)
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
         seconds = total_seconds % 60
         parts = []
-        
+
         if hours > 0:
             parts.append(f"{hours}h")
         if minutes > 0:
@@ -131,10 +142,17 @@ def main():
             parts.append(f"{seconds}s")
         return ' '.join(parts)
 
+    # Pick args.title if available, else fallback to title_suffix
+    chosen_title = args.title.strip() if args.title.strip() else title_suffix.strip()
+
+    # Apply parentheses only if not empty
+    final_suffix = f" ({chosen_title})" if chosen_title else ""
+
     # Create figure and axis
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(time_seconds, y_values, marker='o', linestyle='-')
-    fig.suptitle('Software GenLock Runs (Chrony)', fontsize=14, y=0.98)
+
+    fig.suptitle(f"Software GenLock Runs {final_suffix}", fontsize=14, y=0.98)
     wrapped_subtitle = "\n".join(textwrap.wrap(subtitle_text, width=200))
     ax.set_title(wrapped_subtitle, fontsize=9, loc='center')
     # Labels
@@ -156,16 +174,29 @@ def main():
         plt.text(x=time_seconds[-1], y=time_period - 20 , s=f'Learning Period Range: {format_x_ticks(time_period,0)} ({int(time_period)}s)',
              color='blue', ha='right', fontsize=10)
         '''
+    # Draw average line
+    plt.axhline(y=avg_duration, color='black', linestyle='--', linewidth=1.2, label=f'Average Duration = {avg_duration:.1f}s' )
+    # Place annotation slightly below the line near the end of x-axis
+    plt.text(
+        time_seconds[-1],         # x-position at end of data
+        avg_duration - 20,        # y-position just below the line
+        f'Average Duration = {avg_duration:.1f}s',
+        color='black',
+        fontsize=10,
+        fontweight='bold',
+        ha='right',
+        va='top'
+    )
     plt.grid(True)
     plt.tight_layout(rect=[0.03, 0.05, 1, 0.92])
-    
+
     plt.gca().yaxis.set_major_formatter(FuncFormatter(format_x_ticks))
     plt.gca().xaxis.set_major_formatter(FuncFormatter(format_x_ticks))
-    
+
     # Derive output PNG file name from input CSV file name
     output_file = os.path.splitext(csv_file)[0] + ".png"
     plt.savefig(output_file, dpi=600, bbox_inches='tight')
-    
+
     plt.show()
 
 if __name__ == '__main__':

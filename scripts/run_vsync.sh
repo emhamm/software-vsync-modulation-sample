@@ -1,6 +1,6 @@
 #!/bin/bash
 # *
-# * Copyright © 2024 Intel Corporation
+# * Copyright © 2024-2026 Intel Corporation
 # *
 # * Permission is hereby granted, free of charge, to any person obtaining a
 # * copy of this software and associated documentation files (the "Software"),
@@ -21,7 +21,7 @@
 # * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # * IN THE SOFTWARE.
 #
-# The script runs vsync_test app on primary and secondary machines. The script is supposed
+# The script runs swgenlock app on primary and secondary machines. The script is supposed
 # to be run from primary PC.
 #
 # Script requires command requires passwordless sudo access on primary and secondary machines.  Follow steps to get that
@@ -38,7 +38,7 @@
 #
 # Make sure to update/change configuration variables for both primary and secondary machines as necessary.
 #
-# After executing the script, the vsync_test will be run on both machines; pri & sec modes.
+# After executing the script, the swgenlock will be run on both machines; pri & sec modes.
 # The script will wait for the user to press any key before terminating both processes
 
 # Determine the directory of the currently executing script
@@ -52,13 +52,13 @@ ssh $SECONDARY_ADDRESS "mkdir -p $CLIENT_DIR"
 
 # Copy executable to the client
 echo "Copying executables to the Secondary ..."
-scp "$PRIMARY_PROJ_PATH/$VSYNCTEST_APP" "$PRIMARY_PROJ_PATH/$SYNCTEST_APP" "$PRIMARY_PROJ_PATH/$VBLTEST_APP" "$SECONDARY_ADDRESS:$CLIENT_DIR/" 2>/dev/null
+scp "$PRIMARY_PROJ_PATH/$SWGENLOCK_APP" "$PRIMARY_PROJ_PATH/$SYNCTEST_APP" "$PRIMARY_PROJ_PATH/$VBLTEST_APP" "$SECONDARY_ADDRESS:$CLIENT_DIR/" 2>/dev/null
 
-COMMAND="$PRIMARY_PROJ_PATH/$VSYNCTEST_APP -m pri -i $PRIMARY_INERFACE -e $PRIMARY_DEVICE "
+COMMAND="$PRIMARY_PROJ_PATH/$SWGENLOCK_APP -m pri -i $PRIMARY_INERFACE -e $PRIMARY_DEVICE "
 echo "PRIMARY Command  : $COMMAND"
 PRIMARY_COMMANDS_VSYNC="$SUDO $COMMAND 2>&1 | tee  $LOG_DIR$PRIMARY_LOG_VSYNC &"
 
-COMMAND="$CLIENT_DIR/$VSYNCTEST -m sec -i $SECONDARY_INTERFACE -c $PRIMARY_ETH_ADDR -e $SECONDARY_DEVICE -d 100 -s 0.01"
+COMMAND="$CLIENT_DIR/$SWGENLOCK -m sec -i $SECONDARY_INTERFACE -c $PRIMARY_ETH_ADDR -e $SECONDARY_DEVICE -d 100 -s 0.01"
 echo "SECONDARY Command: $COMMAND"
 SECONDARY_COMMANDS_VSYNC="$SUDO $COMMAND &"
 
@@ -74,10 +74,10 @@ ssh $SECONDARY_ADDRESS "$SECONDARY_COMMANDS_VSYNC" 2>&1 | tee $LOG_DIR$SECONDARY
 cleanup() {
     echo "Cleaning up..."
     # Commands to stop ptp4l and phc2sys on the primary machine
-    PRIMARY_STOP_COMMANDS_VSYNC="$SUDO kill -SIGINT \$(pgrep $VSYNCTEST) 2>/dev/null"
+    PRIMARY_STOP_COMMANDS_VSYNC="$SUDO kill -SIGINT \$(pgrep $SWGENLOCK) 2>/dev/null"
 
     # Commands to stop ptp4l and phc2sys on the secondary machine
-    SECONDARY_STOP_COMMANDS_VSYNC="$SUDO kill -SIGINT \$(pgrep $VSYNCTEST) 2>/dev/null"
+    SECONDARY_STOP_COMMANDS_VSYNC="$SUDO kill -SIGINT \$(pgrep $SWGENLOCK) 2>/dev/null"
 
     # Stop commands on the secondary machine via SSH
     echo "Stopping commands on the secondary machine..."

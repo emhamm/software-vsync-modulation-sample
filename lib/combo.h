@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Intel Corporation
+ * Copyright © 2024-2026 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -60,9 +60,9 @@ public:
 	combo(ddi_sel* ds, int _pipe);
 	~combo( );
 
-	int program_mmio(int mod);
+	int program_mmio(bool mod);
 	double calculate_pll_clock(uint32_t cfgcr0, uint32_t cfgcr1);
-	double calculate_pll_clock( );
+	double calculate_pll_clock(void);
 	int calculate_feedback_dividers(double pll_freq);
 	void calculate_feedback_dividers(double pll_freq, uint32_t cfgcr1,
 		uint32_t* i_fbdiv_intgr_9_0, uint32_t* i_fbdivfrac_14_0);
