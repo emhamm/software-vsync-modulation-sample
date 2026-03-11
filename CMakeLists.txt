@@ -90,10 +90,7 @@ if(BUILD_FRAMESYNC)
 endif()
 
 # Installation
-install(DIRECTORY cmn/ DESTINATION include/vsyncalter
-    FILES_MATCHING PATTERN "*.h")
-
-install(DIRECTORY os/ DESTINATION include/vsyncalter/os
+install(DIRECTORY cmn/ DESTINATION include
     FILES_MATCHING PATTERN "*.h")
 
 # Print summary

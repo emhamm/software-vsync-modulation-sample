@@ -113,10 +113,6 @@ install(TARGETS ${LIB_NAME}_shared ${LIB_NAME}_static
     RUNTIME DESTINATION bin
 )
 
-install(FILES ${LIB_HEADERS}
-    DESTINATION include/vsyncalter
-)
-
 # Export targets
 install(EXPORT vsyncalterTargets
     FILE vsyncalterTargets.cmake
